@@ -1,0 +1,12 @@
+<RCC>
+    <qresource prefix="/">
+        <file alias="locker">pixmaps/point_locker.png</file>
+        <file>pixmaps/generator.png</file>
+        <file>pixmaps/lockOff.png</file>
+        <file>pixmaps/lockOn.png</file>
+        <file>pixmaps/logistic.png</file>
+        <file>pixmaps/restore.png</file>
+        <file>pixmaps/zoom.png</file>
+        <file>pixmaps/reset.png</file>
+    </qresource>
+</RCC>
