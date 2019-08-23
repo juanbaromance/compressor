@@ -18,6 +18,7 @@
 #include <QVariant>
 #include <QHBoxLayout>
 #include <tuple>
+#include <QGraphicsTextItem>
 
 using LogisticParams = logistic_parameters_t;
 class MyLogistic : public CLogistic
@@ -27,21 +28,32 @@ public :
 
     LogisticUI ui;
 
-    MyLogistic( QVector<QXYSeries*> records, float plateau, float slope, float half_plateau, QChart *chart, size_t sampling = 15 )
-        : CLogistic ( plateau , slope , half_plateau )
+    MyLogistic( QVector<QXYSeries*> records, float plateau, float slope, float half_plateau, QChart *_chart, size_t sampling = 15 )
+        : CLogistic ( plateau , slope , half_plateau ), chart( _chart )
     {
        ui = makeUI();
        populate( records, sampling );
-
     }
-    QString report(){ return QString("Plateau(%1)/Slope(%2)/HalfPlateau(%3)").arg(G()).arg(k1()).arg(k2()); }
-    void populate( QVector<QXYSeries*> & records,  size_t sampling, LogisticParams *params  = nullptr)
-    {
-        G ( params == nullptr ? std::get<1>(ui)->value() : params->G);
-        k1( params == nullptr ? std::get<2>(ui)->value()/1000. : params->k1);
-        k2( params == nullptr ? std::get<3>(ui)->value() : params->k2);
 
-        float scaler = k2()*2/sampling;
+    QString populate( QVector<QXYSeries*> & records,  size_t sampling = 15, LogisticParams *params  = nullptr)
+    {
+
+        G ( params == nullptr ? abs(std::get<1>(ui)->value())  : params->G);
+        k1( params == nullptr ? std::get<2>(ui)->value()/1000. : params->k1);
+        k2( params == nullptr ? std::get<3>(ui)->value()       : params->k2);
+
+        {
+            double _zero = fabs( eval( 0 ) );
+            if( _zero > 2.0 )
+            {
+                status = QString("<small><b><big><font color=\"Navy\">OOrange</font><big></b> K1(%1)K2(%2) exceeds <b>%3</b></small>")
+                                  .arg( G()).arg( k1() ).arg( _zero );
+                chart->setTitle(status);
+                return status;
+            }
+        }
+
+        float scaler = ( k2()*2 )/sampling;
         for( auto s : records )
         {
             s->clear();
@@ -51,9 +63,16 @@ public :
                 s->append( round(x_map), round(eval( x_map )));
             }
         }
+        status = QString("<small><b>Logistic(%1)</b> Plateau.G(%2)/Slope.k1(%3)/HalfPlateau.k2(%4)<small>")
+                     .arg(sampling).arg(G()).arg(k1()).arg(k2());
+        chart->setTitle(status);
+        return status;
     }
 
 private:
+    QChart *chart;
+    QString status;
+
     LogisticUI makeUI()
     {
         QVBoxLayout *logisticLayout = new QVBoxLayout();
@@ -152,16 +171,21 @@ private:
 };
 
 
+
+static QVector<QXYSeries*> records;
+
 QCompressor::QCompressor(QWidget *parent) : QWidget(parent)
 {
+    static MyLogistic *logistic;
     QChart *chart = new QChart();
     chart->legend()->hide();
-    chart->setAnimationOptions(QChart::AllAnimations);
+    //chart->setAnimationOptions(QChart::AllAnimations);
 
     QSplineSeries *series;
     QScatterSeries *dots;
-    QVector<QXYSeries*> records;
-    MyLogistic logistic( records = { series = new QSplineSeries(this), dots = new QScatterSeries(this) }, 230, 0.236, 30, chart );
+
+    logistic = new MyLogistic( records = { series = new QSplineSeries(this), dots = new QScatterSeries(this) }, 230, 0.236, 30, chart );
+
     series->setName("Logistic-Splined");
     dots->setName("Logistic-Sampled");
 
@@ -169,12 +193,11 @@ QCompressor::QCompressor(QWidget *parent) : QWidget(parent)
     marker->setColor(Qt::blue);
     marker->setName("Marker");
     marker->setMarkerSize( marker->markerSize()* 1.50 );
-    records.append( marker );
 
     for( auto s : records )
         chart->addSeries(s);
+    chart->addSeries(marker);
 
-    chart->setTitle(QString("<b><big>Logistic</big></b><br><small>%1</small>").arg(logistic.report()));
     chart->createDefaultAxes();
     chart->axisX()->setTitleText("Effort Units");
     chart->axisY()->setTitleText("U.A");
@@ -200,13 +223,19 @@ QCompressor::QCompressor(QWidget *parent) : QWidget(parent)
     QPushButton *generator = new QPushButton(this);
     generator->setObjectName("Generator");
 
-    QChartView *chartView = new QLogisticChartView( chart, dots, marker, logistic.ui, this );
+    QLogisticChartView *chartView = new QLogisticChartView( chart, dots, marker, logistic, this );
     chartView->setRenderHint(QPainter::Antialiasing);
     chartView->setMinimumSize(640, 480);
 
+    for( auto i : { std::get<1>(logistic->ui),  std::get<2>(logistic->ui),  std::get<3>(logistic->ui)  })
+        connect( i, & QSlider::sliderReleased, [=](){
+            logistic->populate( records );
+        });
+
+
     QVBoxLayout *layout = new QVBoxLayout;
     layout->addWidget( chartView );
-    layout->addItem( std::get<0>(logistic.ui) );
+    layout->addItem( std::get<0>(logistic->ui) );
 
     {
         QHBoxLayout *pivote_box = new QHBoxLayout;
@@ -222,13 +251,14 @@ QCompressor::QCompressor(QWidget *parent) : QWidget(parent)
             connect( s, SIGNAL(valueChanged(int)),l,SLOT(setNum(int)));
 
         }
-        y_pivote->setMaximum( logistic.G() * 1.2 );
-        x_pivote->setMaximum( logistic.k2() * 2 * 1.2 );
+        y_pivote->setMaximum( logistic->G() * 1.2 );
+        x_pivote->setMaximum( logistic->k2() * 2 * 1.2 );
 
         {
             QIcon icon;
             icon.addFile(QString::fromUtf8(":/pixmaps/generator.png"), QSize(), QIcon::Normal);
             generator->setIcon(icon);
+            generator->setToolTip("<small><b>Splined</b> curve generator through tweaked points</small>");
         }
 
         pivote_box->addWidget( generator );
@@ -241,8 +271,9 @@ QCompressor::QCompressor(QWidget *parent) : QWidget(parent)
             icon.addFile(QString::fromUtf8(":/pixmaps/zoom.png"), QSize(), QIcon::Normal);
             zoom->setIcon(icon);
             QObject::connect(zoom,&QPushButton::clicked,[=](){
-                chart->zoomReset();
+                chartView->adjustRanges();
             });
+            zoom->setToolTip("<small><b>AutoZoom</b> operation</small>");
         }
 
         {
@@ -250,6 +281,7 @@ QCompressor::QCompressor(QWidget *parent) : QWidget(parent)
             QIcon icon;
             icon.addFile(QString::fromUtf8(":/pixmaps/reset.png"), QSize(), QIcon::Normal);
             reset->setIcon(icon);
+            reset->setToolTip("<small><b>Initialise</b> curves</small>");
         }
 
         pivote_box->setSpacing(2);
@@ -260,8 +292,8 @@ QCompressor::QCompressor(QWidget *parent) : QWidget(parent)
 
 }
 
-QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSeries *_marker, LogisticUI & logistic_ui, QWidget *parent)
-    : QChartView(chart, parent), series( _series ), marker( _marker )
+QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSeries *_marker, MyLogistic *_logistic, QWidget *parent)
+    : QChartView(chart, parent), series( _series ), marker( _marker ), logistic( _logistic ), persistence( false )
 {
     g_series = new QSplineSeries(this);
     g_series->setName("Tweak");
@@ -304,7 +336,7 @@ QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSer
         pivote_y->setValue( pivote.y() );
         cached = true;
     });
-
+    generator = parent->findChild<QPushButton*>("Generator");
     auto f = [=]( int value ) {
         (void)value;
         if( cached == false || ( inhibit == true ) )
@@ -313,13 +345,13 @@ QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSer
         series->replace( pivote, replacement );
         marker->replace( pivote, replacement );
         pivote = replacement;
+        generator->click();
     };
     pivote_x->connect( pivote_x, QOverload<int>::of(& QSlider::valueChanged), f );
     pivote_y->connect( pivote_y, QOverload<int>::of(& QSlider::valueChanged), f );
 
-    generator = parent->findChild<QPushButton*>("Generator");
     QObject::connect(generator,&QPushButton::clicked,[=](){
-        chart->zoomReset();
+        adjustRanges();
         chart->removeSeries(g_series);
         g_series->clear();
         for( auto p : series->pointsVector() )
@@ -329,26 +361,45 @@ QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSer
 
     QObject::connect(parent->findChild<QPushButton*>("Reset"),&QPushButton::clicked,[=](){
         inhibit = true;
-        chart->zoomReset();
-        chart->removeSeries( control );
-        control->clear();
-        for( auto p : series->pointsVector() )
-            control->append( p );
-        chart->addSeries( control );
+        adjustRanges();
 
-        series->clear();
-        MyLogistic logistic( { series }, 230, 0.236, 30, chart );
+        if( persistence )
+        {
+            chart->removeSeries( control );
+            control->clear();
+            for( auto p : series->pointsVector() )
+                control->append( p );
+            chart->addSeries( control );
+        }
+
+        logistic->populate(records);
         inhibit = false;
     });
 
-    for( auto i : { std::get<1>(logistic_ui),  std::get<2>(logistic_ui),  std::get<3>(logistic_ui)  })
-        connect( i, & QSlider::sliderReleased, [=](){
-            chart->removeAllSeries();
-            for( auto s : { series, g_series, control })
-                s->clear();
 
-        });
 }
+
+void QLogisticChartView::adjustRanges()
+{
+    float x_min = 0,x_max = 0,y_min = 0, y_max = 0;
+    for( auto p : series->pointsVector() )
+    {
+        if( p.x() < x_min )
+            x_min = p.x();
+        else if ( p.x() > x_max )
+            x_max = p.x();
+
+        if( p.y() < y_min )
+            y_min = p.y();
+        else if ( p.y() > y_max )
+            y_max = p.y();
+    }
+
+    chart()->axisX()->setRange(x_min,x_max);
+    chart()->axisY()->setRange(y_min,y_max);
+
+}
+
 
 void QLogisticChartView::wheelEvent(QWheelEvent *event)
 {
@@ -371,9 +422,4 @@ void QLogisticChartView::wheelEvent(QWheelEvent *event)
 void QLogisticChartView::mouseMoveEvent(QMouseEvent *event)
 {
     QChartView::mouseMoveEvent(event);
-}
-
-void QLogisticChartView::populate(int value)
-{
-    chart()->removeAllSeries();
 }

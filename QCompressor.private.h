@@ -14,13 +14,14 @@
 QT_CHARTS_USE_NAMESPACE
 
 using LogisticUI = std::tuple<QVBoxLayout*,QSlider*,QSlider*,QSlider*>;
-
+class MyLogistic;
 class QLogisticChartView : public QChartView
 {
 
 public:
-    QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSeries *_marker, LogisticUI & logistic, QWidget *parent = 0);
-    void populate(int value);
+    explicit QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSeries *_marker, MyLogistic *_logistic, QWidget *parent = 0);
+    ~QLogisticChartView(){}
+    void adjustRanges();
 
 private:
     QPushButton *generator, *reset;
@@ -30,8 +31,8 @@ private:
     QXYSeries *control;
     QPointF pivote;
     QSlider *pivote_x, *pivote_y;
-    bool cached, inhibit;
-
+    bool cached, inhibit, persistence;
+    MyLogistic *logistic;
     void wheelEvent(QWheelEvent *event) Q_DECL_OVERRIDE;
     void mouseMoveEvent(QMouseEvent *event) Q_DECL_OVERRIDE;
 

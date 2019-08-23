@@ -11,8 +11,6 @@ public:
 
 signals:
 
-public slots:
-
 };
 
 #endif // QCOMPRESSOR_H
