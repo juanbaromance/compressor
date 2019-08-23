@@ -1,4 +1,5 @@
 #include "QCompressor.h"
+#include "QCompressor.private.h"
 #include <QtCharts/QChartView>
 #include <QtCharts/QSplineSeries>
 #include <QtCharts/QScatterSeries>
@@ -18,6 +19,7 @@
 #include <QHBoxLayout>
 #include <tuple>
 
+using LogisticParams = logistic_parameters_t;
 class MyLogistic : public CLogistic
 {
 
@@ -28,11 +30,31 @@ public :
     MyLogistic( QVector<QXYSeries*> records, float plateau, float slope, float half_plateau, QChart *chart, size_t sampling = 15 )
         : CLogistic ( plateau , slope , half_plateau )
     {
-        populate( records, sampling  );
-        ui = makeUI( chart );
+       ui = makeUI();
+       populate( records, sampling );
+
+    }
+    QString report(){ return QString("Plateau(%1)/Slope(%2)/HalfPlateau(%3)").arg(G()).arg(k1()).arg(k2()); }
+    void populate( QVector<QXYSeries*> & records,  size_t sampling, LogisticParams *params  = nullptr)
+    {
+        G ( params == nullptr ? std::get<1>(ui)->value() : params->G);
+        k1( params == nullptr ? std::get<2>(ui)->value()/1000. : params->k1);
+        k2( params == nullptr ? std::get<3>(ui)->value() : params->k2);
+
+        float scaler = k2()*2/sampling;
+        for( auto s : records )
+        {
+            s->clear();
+            for( size_t j = 0; j < sampling; j++ )
+            {
+                float x_map = j * scaler;
+                s->append( round(x_map), round(eval( x_map )));
+            }
+        }
     }
 
-    LogisticUI makeUI( QChart *chart)
+private:
+    LogisticUI makeUI()
     {
         QVBoxLayout *logisticLayout = new QVBoxLayout();
         QHBoxLayout *horizontalLayout_13 = new QHBoxLayout();
@@ -126,22 +148,6 @@ public :
         return ui = std::make_tuple(logisticLayout,GSlider,K1Slider,K2Slider);
     }
 
-    QString report(){ return QString("Plateau(%1)/Slope(%2)/HalfPlateau(%3)").arg(G()).arg(k1()).arg(k2()); }
-
-
-    void populate( QVector<QXYSeries*> & records, size_t sampling )
-    {
-        float scaler = k2()*2/sampling;
-        for( auto s : records )
-        {
-            s->clear();
-            for( size_t j = 0; j < sampling; j++ )
-            {
-                float x_map = j * scaler;
-                s->append( round(x_map), round(eval( x_map )));
-            }
-        }
-    }
 
 };
 
@@ -156,7 +162,7 @@ QCompressor::QCompressor(QWidget *parent) : QWidget(parent)
     QScatterSeries *dots;
     QVector<QXYSeries*> records;
     MyLogistic logistic( records = { series = new QSplineSeries(this), dots = new QScatterSeries(this) }, 230, 0.236, 30, chart );
-    series->setName("Logistic-SPlined");
+    series->setName("Logistic-Splined");
     dots->setName("Logistic-Sampled");
 
     QScatterSeries *marker= new QScatterSeries(this);
@@ -334,6 +340,14 @@ QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSer
         MyLogistic logistic( { series }, 230, 0.236, 30, chart );
         inhibit = false;
     });
+
+    for( auto i : { std::get<1>(logistic_ui),  std::get<2>(logistic_ui),  std::get<3>(logistic_ui)  })
+        connect( i, & QSlider::sliderReleased, [=](){
+            chart->removeAllSeries();
+            for( auto s : { series, g_series, control })
+                s->clear();
+
+        });
 }
 
 void QLogisticChartView::wheelEvent(QWheelEvent *event)
@@ -357,5 +371,9 @@ void QLogisticChartView::wheelEvent(QWheelEvent *event)
 void QLogisticChartView::mouseMoveEvent(QMouseEvent *event)
 {
     QChartView::mouseMoveEvent(event);
+}
 
+void QLogisticChartView::populate(int value)
+{
+    chart()->removeAllSeries();
 }

@@ -17,6 +17,7 @@ INSTALLS += target
 HEADERS += \
 	./dependencies/common_cpp/inc/CLogistic.h \
 	QCompressor.h \
+	QCompressor.private.h \
 	main.h
 
 RESOURCES += \
