@@ -30,11 +30,26 @@
 #include <QtWidgets/QApplication>
 #include <QtWidgets/QMainWindow>
 #include "QCompressor.h"
+#include "arthurwidgets.h"
 
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
     QCompressor compressor;
+
+    QStyle *arthurStyle = new ArthurStyle();
+    compressor.setStyle(arthurStyle);
+    QList<QWidget *> widgets = compressor.findChildren<QWidget *>();
+    foreach (QWidget *w, widgets)
+    {
+
+#ifdef __QT_CHARTS_PROVIDED
+        if(( qobject_cast<QComboBox*>(w) ) || ( qobject_cast<QChartView*>(w) ) || ( qobject_cast<QChart*>(w) ) )
+            continue;
+#endif
+        w->setStyle(arthurStyle);
+    }
+
     compressor.show();
     return a.exec();
 }

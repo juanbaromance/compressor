@@ -15,17 +15,126 @@
 #include <QPushButton>
 #include <QSlider>
 #include <QVariant>
-
+#include <QHBoxLayout>
+#include <tuple>
 
 class MyLogistic : public CLogistic
 {
+
 public :
-    MyLogistic( QVector<QXYSeries*> records, float plateau, float slope, float half_plateau, size_t sampling = 15 )
+
+    LogisticUI ui;
+
+    MyLogistic( QVector<QXYSeries*> records, float plateau, float slope, float half_plateau, QChart *chart, size_t sampling = 15 )
         : CLogistic ( plateau , slope , half_plateau )
+    {
+        populate( records, sampling  );
+        ui = makeUI( chart );
+    }
+
+    LogisticUI makeUI( QChart *chart)
+    {
+        QVBoxLayout *logisticLayout = new QVBoxLayout();
+        QHBoxLayout *horizontalLayout_13 = new QHBoxLayout();
+        QHBoxLayout *horizontalLayout_10 = new QHBoxLayout();
+        horizontalLayout_10->setSpacing(6);
+        horizontalLayout_10->setObjectName(QStringLiteral("horizontalLayout_10"));
+
+        QLabel *label_9 = new QLabel("<small><i> Slope </i></small>");
+        horizontalLayout_10->addWidget(label_9);
+        QSpinBox *K1Spb = new QSpinBox();
+        K1Spb->setObjectName(QStringLiteral("K1Spb"));
+        K1Spb->setMinimum(5);
+        K1Spb->setMaximum(800);
+        K1Spb->setValue(k1()*1000);
+        horizontalLayout_10->addWidget(K1Spb);
+        QSlider *K1Slider = new QSlider();
+        K1Slider->setObjectName(QStringLiteral("K1Slider"));
+        K1Slider->setMinimum(5);
+        K1Slider->setMaximum(800);
+        K1Slider->setValue(k1()*1000);
+        K1Slider->setOrientation(Qt::Horizontal);
+        QObject::connect(K1Spb,SIGNAL(valueChanged(int)),K1Slider,SLOT(setValue(int)));
+        QObject::connect(K1Slider,SIGNAL(valueChanged(int)),K1Spb,SLOT(setValue(int)));
+
+        horizontalLayout_10->addWidget(K1Slider);
+        horizontalLayout_13->addLayout(horizontalLayout_10);
+
+        QHBoxLayout * horizontalLayout_11 = new QHBoxLayout();
+        horizontalLayout_11->setSpacing(6);
+        horizontalLayout_11->setObjectName(QStringLiteral("horizontalLayout_11"));
+        QLabel* label_10 = new QLabel("<small><i> Half Plateau </i></small>");
+        label_10->setObjectName(QStringLiteral("label_10"));
+        horizontalLayout_11->addWidget(label_10);
+
+        QSpinBox *K2Spb = new QSpinBox();
+        K2Spb->setObjectName(QStringLiteral("K2Spb"));
+        K2Spb->setMinimum(5);
+        K2Spb->setMaximum(60);
+        K2Spb->setValue(k2());
+
+        horizontalLayout_11->addWidget(K2Spb);
+
+        QSlider * K2Slider = new QSlider( );
+        K2Slider->setObjectName(QStringLiteral("K2Slider"));
+        K2Slider->setMinimum(5);
+        K2Slider->setMaximum(60);
+        K2Slider->setPageStep(10);
+        K2Slider->setValue(k2());
+        K2Slider->setOrientation(Qt::Horizontal);
+        QObject::connect(K2Spb,SIGNAL(valueChanged(int)),K2Slider,SLOT(setValue(int)));
+        QObject::connect(K2Slider,SIGNAL(valueChanged(int)),K2Spb,SLOT(setValue(int)));
+
+        horizontalLayout_11->addWidget(K2Slider);
+        horizontalLayout_13->addLayout(horizontalLayout_11);
+
+        logisticLayout->addLayout(horizontalLayout_13);
+
+        QHBoxLayout *horizontalLayout_9 = new QHBoxLayout();
+        horizontalLayout_9->setSpacing(6);
+        horizontalLayout_9->setObjectName(QStringLiteral("horizontalLayout_9"));
+        QLabel *label_7 = new QLabel("<small><i> Plateau </i></small>");
+        horizontalLayout_9->addWidget(label_7);
+
+        QSpinBox* GSpb = new QSpinBox();
+        GSpb->setObjectName(QStringLiteral("GSpb"));
+        GSpb->setMinimum(-500);
+        GSpb->setMaximum(500);
+        GSpb->setValue(G());
+
+        horizontalLayout_9->addWidget(GSpb);
+
+        QSlider *GSlider = new QSlider();
+        GSlider->setObjectName(QStringLiteral("GSlider"));
+        GSlider->setMinimum(-500);
+        GSlider->setMaximum(500);
+        GSlider->setValue(G());
+        GSlider->setOrientation(Qt::Horizontal);
+        QObject::connect(GSpb,SIGNAL(valueChanged(int)),GSlider,SLOT(setValue(int)));
+        QObject::connect(GSlider,SIGNAL(valueChanged(int)),GSpb,SLOT(setValue(int)));
+
+        horizontalLayout_9->addWidget(GSlider);
+        logisticLayout->addLayout(horizontalLayout_9);
+
+        QFrame* line_4 = new QFrame();
+        line_4->setObjectName(QStringLiteral("line_4"));
+        line_4->setFrameShape(QFrame::HLine);
+        line_4->setFrameShadow(QFrame::Sunken);
+
+        logisticLayout->addWidget(line_4);
+
+        return ui = std::make_tuple(logisticLayout,GSlider,K1Slider,K2Slider);
+    }
+
+    QString report(){ return QString("Plateau(%1)/Slope(%2)/HalfPlateau(%3)").arg(G()).arg(k1()).arg(k2()); }
+
+
+    void populate( QVector<QXYSeries*> & records, size_t sampling )
     {
         float scaler = k2()*2/sampling;
         for( auto s : records )
         {
+            s->clear();
             for( size_t j = 0; j < sampling; j++ )
             {
                 float x_map = j * scaler;
@@ -33,24 +142,22 @@ public :
             }
         }
     }
-    QString report(){ return QString("Plateau(%1)/Slope(%2)/HalfPlateau(%3)").arg(G()).arg(k1()).arg(k2()); }
+
 };
 
 
 QCompressor::QCompressor(QWidget *parent) : QWidget(parent)
 {
-    QSplineSeries *series;
-    QScatterSeries *dots;
-    QVector<QXYSeries*> records;
-    MyLogistic logistic( records = { series = new QSplineSeries(this), dots = new QScatterSeries(this) }, 230, 0.236, 30 );
-
-    series->setName("Logistic-SPlined");
-    dots->setName("Logistic-Sampled");
-
     QChart *chart = new QChart();
     chart->legend()->hide();
     chart->setAnimationOptions(QChart::AllAnimations);
 
+    QSplineSeries *series;
+    QScatterSeries *dots;
+    QVector<QXYSeries*> records;
+    MyLogistic logistic( records = { series = new QSplineSeries(this), dots = new QScatterSeries(this) }, 230, 0.236, 30, chart );
+    series->setName("Logistic-SPlined");
+    dots->setName("Logistic-Sampled");
 
     QScatterSeries *marker= new QScatterSeries(this);
     marker->setColor(Qt::blue);
@@ -65,7 +172,9 @@ QCompressor::QCompressor(QWidget *parent) : QWidget(parent)
     chart->createDefaultAxes();
     chart->axisX()->setTitleText("Effort Units");
     chart->axisY()->setTitleText("U.A");
+
     chart->axisX()->setGridLineVisible(true);
+    chart->axisY()->setGridLineVisible(true);
     chart->axisX()->setMinorGridLineVisible(true);
     chart->axisY()->setMinorGridLineVisible(true);
 
@@ -85,12 +194,13 @@ QCompressor::QCompressor(QWidget *parent) : QWidget(parent)
     QPushButton *generator = new QPushButton(this);
     generator->setObjectName("Generator");
 
-    QChartView *chartView = new QChartViewDerivated( chart, dots, marker, this );
+    QChartView *chartView = new QLogisticChartView( chart, dots, marker, logistic.ui, this );
     chartView->setRenderHint(QPainter::Antialiasing);
     chartView->setMinimumSize(640, 480);
 
     QVBoxLayout *layout = new QVBoxLayout;
     layout->addWidget( chartView );
+    layout->addItem( std::get<0>(logistic.ui) );
 
     {
         QHBoxLayout *pivote_box = new QHBoxLayout;
@@ -144,7 +254,7 @@ QCompressor::QCompressor(QWidget *parent) : QWidget(parent)
 
 }
 
-QChartViewDerivated::QChartViewDerivated(QChart *chart, QXYSeries *_series, QXYSeries *_marker, QWidget *parent)
+QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSeries *_marker, LogisticUI & logistic_ui, QWidget *parent)
     : QChartView(chart, parent), series( _series ), marker( _marker )
 {
     g_series = new QSplineSeries(this);
@@ -175,10 +285,12 @@ QChartViewDerivated::QChartViewDerivated(QChart *chart, QXYSeries *_series, QXYS
     pivote_y = parent->findChild<QSlider*>("PivoteY");
 
     series->connect(series, &QXYSeries::hovered, [=]( QPointF point, bool state ){
+
         if( state == false || ( inhibit == true ) )
             return;
-        cached = false;
+
         setToolTip( QString("<small>(%1,%2)</small>").arg(point.x()).arg(point.y()) );
+        cached = false;
         marker->clear();
         marker->append( point.x(), point.y() );
         pivote = point;
@@ -219,12 +331,12 @@ QChartViewDerivated::QChartViewDerivated(QChart *chart, QXYSeries *_series, QXYS
         chart->addSeries( control );
 
         series->clear();
-        MyLogistic logistic( { series }, 230, 0.236, 30 );
+        MyLogistic logistic( { series }, 230, 0.236, 30, chart );
         inhibit = false;
     });
 }
 
-void QChartViewDerivated::wheelEvent(QWheelEvent *event)
+void QLogisticChartView::wheelEvent(QWheelEvent *event)
 {
     qreal factor;
     if ( event->delta() > 0 )
@@ -234,6 +346,7 @@ void QChartViewDerivated::wheelEvent(QWheelEvent *event)
 
     QRectF r = QRectF(chart()->plotArea().left(),chart()->plotArea().top(),
                       chart()->plotArea().width()/factor,chart()->plotArea().height()/factor);
+
     QPointF mousePos = mapFromGlobal(QCursor::pos());
     r.moveCenter(mousePos);
     chart()->zoomIn(r);
@@ -241,7 +354,7 @@ void QChartViewDerivated::wheelEvent(QWheelEvent *event)
     chart()->scroll(delta.x(),-delta.y());
 }
 
-void QChartViewDerivated::mouseMoveEvent(QMouseEvent *event)
+void QLogisticChartView::mouseMoveEvent(QMouseEvent *event)
 {
     QChartView::mouseMoveEvent(event);
 

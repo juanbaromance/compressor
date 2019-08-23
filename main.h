@@ -9,12 +9,16 @@
 #include <QSlider>
 #include <QSplineSeries>
 #include <QScatterSeries>
+#include <QVBoxLayout>
+
 QT_CHARTS_USE_NAMESPACE
 
-class QChartViewDerivated : public QChartView
+using LogisticUI = std::tuple<QVBoxLayout*,QSlider*,QSlider*,QSlider*>;
+
+class QLogisticChartView : public QChartView
 {
 public:
-    QChartViewDerivated(QChart *chart, QXYSeries *_series, QXYSeries *_marker, QWidget *parent = 0);
+    QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSeries *_marker, LogisticUI & logistic, QWidget *parent = 0);
 
 private:
     QPushButton *generator, *reset;
@@ -28,6 +32,8 @@ private:
 
     void wheelEvent(QWheelEvent *event) Q_DECL_OVERRIDE;
     void mouseMoveEvent(QMouseEvent *event) Q_DECL_OVERRIDE;
+
+private slots:
 
 };
 
