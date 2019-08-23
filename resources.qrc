@@ -8,5 +8,6 @@
         <file>pixmaps/restore.png</file>
         <file>pixmaps/zoom.png</file>
         <file>pixmaps/reset.png</file>
+        <file>pixmaps/save.png</file>
     </qresource>
 </RCC>

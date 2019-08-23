@@ -50,6 +50,7 @@ int main(int argc, char *argv[])
         w->setStyle(arthurStyle);
     }
 
+    compressor.setWindowTitle("Compressor Design Tool");
     compressor.show();
     return a.exec();
 }

@@ -6,7 +6,6 @@
 #include <QVector>
 #include <QValueAxis>
 #include "common_cpp/CLogistic.h"
-#include "main.h"
 #include <QToolTip>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -16,9 +15,18 @@
 #include <QPushButton>
 #include <QSlider>
 #include <QVariant>
-#include <QHBoxLayout>
+
+#include <QFileDialog>
+#include <QDateTime>
+#include <QTextStream>
+#include <QFileInfo>
+
 #include <tuple>
-#include <QGraphicsTextItem>
+#include <iostream>
+#include <iomanip>
+using namespace std;
+#include <gsl/gsl_errno.h>
+#include <gsl/gsl_spline.h>
 
 using LogisticParams = logistic_parameters_t;
 class MyLogistic : public CLogistic
@@ -63,7 +71,7 @@ public :
                 s->append( round(x_map), round(eval( x_map )));
             }
         }
-        status = QString("<small><b>Logistic(%1)</b> Plateau.G(%2)/Slope.k1(%3)/HalfPlateau.k2(%4)<small>")
+        status = QString("<small><b>Logistic(%1)</b> Plateau.G(<b>%2</b>)/Slope.k1(<b>%3</b>)/HalfPlateau.k2(<b>%4</b>)<small>")
                      .arg(sampling).arg(G()).arg(k1()).arg(k2());
         chart->setTitle(status);
         return status;
@@ -179,7 +187,7 @@ QCompressor::QCompressor(QWidget *parent) : QWidget(parent)
     static MyLogistic *logistic;
     QChart *chart = new QChart();
     chart->legend()->hide();
-    //chart->setAnimationOptions(QChart::AllAnimations);
+    chart->setAnimationOptions(QChart::SeriesAnimations);
 
     QSplineSeries *series;
     QScatterSeries *dots;
@@ -218,14 +226,20 @@ QCompressor::QCompressor(QWidget *parent) : QWidget(parent)
     value.setValue(QString("Y "));
     y_pivote->setProperty("Auditor", value );
 
-    QPushButton *reset= new QPushButton(this);
-    reset->setObjectName("Reset");
-    QPushButton *generator = new QPushButton(this);
-    generator->setObjectName("Generator");
+    QPushButton *reset;
+    ( reset = new QPushButton(this) )->setObjectName("Reset");
+    QPushButton *generator;
+    ( generator = new QPushButton(this) )->setObjectName("Generator");
+    QPushButton *save;
+    ( save = new QPushButton(this) )->setObjectName("MapSaver");
+    QPushButton *zoom = new QPushButton(this);
+    zoom->setObjectName("zoom");
 
     QLogisticChartView *chartView = new QLogisticChartView( chart, dots, marker, logistic, this );
     chartView->setRenderHint(QPainter::Antialiasing);
     chartView->setMinimumSize(640, 480);
+
+    QObject::connect(zoom,&QPushButton::clicked,[=](){ chartView->adjustRanges(); });
 
     for( auto i : { std::get<1>(logistic->ui),  std::get<2>(logistic->ui),  std::get<3>(logistic->ui)  })
         connect( i, & QSlider::sliderReleased, [=](){
@@ -240,6 +254,7 @@ QCompressor::QCompressor(QWidget *parent) : QWidget(parent)
     {
         QHBoxLayout *pivote_box = new QHBoxLayout;
         pivote_box->addItem( new QSpacerItem(40, 20, QSizePolicy::Expanding, QSizePolicy::Minimum) );
+        pivote_box->addWidget( new QLabel("<small><i>Control point tweak<i></small>") );
 
         for( auto s : { x_pivote, y_pivote } )
         {
@@ -254,35 +269,18 @@ QCompressor::QCompressor(QWidget *parent) : QWidget(parent)
         y_pivote->setMaximum( logistic->G() * 1.2 );
         x_pivote->setMaximum( logistic->k2() * 2 * 1.2 );
 
-        {
+        auto buttonSetUp = [=]( QPushButton *b, QString icon_reference, QString tooltip ){
+            pivote_box->addWidget( b );
             QIcon icon;
-            icon.addFile(QString::fromUtf8(":/pixmaps/generator.png"), QSize(), QIcon::Normal);
-            generator->setIcon(icon);
-            generator->setToolTip("<small><b>Splined</b> curve generator through tweaked points</small>");
-        }
+            icon.addFile(icon_reference, QSize(), QIcon::Normal);
+            b->setIcon(icon);
+            b->setToolTip(tooltip);
+        };
 
-        pivote_box->addWidget( generator );
-
-        {
-            QPushButton *zoom= new QPushButton(this);
-            zoom->setObjectName("zoom");
-            pivote_box->addWidget( zoom );
-            QIcon icon;
-            icon.addFile(QString::fromUtf8(":/pixmaps/zoom.png"), QSize(), QIcon::Normal);
-            zoom->setIcon(icon);
-            QObject::connect(zoom,&QPushButton::clicked,[=](){
-                chartView->adjustRanges();
-            });
-            zoom->setToolTip("<small><b>AutoZoom</b> operation</small>");
-        }
-
-        {
-            pivote_box->addWidget( reset );
-            QIcon icon;
-            icon.addFile(QString::fromUtf8(":/pixmaps/reset.png"), QSize(), QIcon::Normal);
-            reset->setIcon(icon);
-            reset->setToolTip("<small><b>Initialise</b> curves</small>");
-        }
+        buttonSetUp( generator,":/pixmaps/generator.png","<small><b>Splined</b> curve generator through tweaked points</small>");
+        buttonSetUp( zoom     ,":/pixmaps/zoom.png","<small><b>AutoZoom</b> operation</small>");
+        buttonSetUp( reset    ,":/pixmaps/reset.png","<small><b>Initialise</b> curves</small>");
+        buttonSetUp( save     ,":/pixmaps/save.png","<small><b>Save</b> tweaked curve on ASCII file</small>");
 
         pivote_box->setSpacing(2);
         layout->addItem(pivote_box);
@@ -291,14 +289,28 @@ QCompressor::QCompressor(QWidget *parent) : QWidget(parent)
     setLayout(layout);
 
 }
+QLogisticChartView::~QLogisticChartView()
+{
+    gsl_spline_free ( gsl.spline );
+    gsl_interp_accel_free (gsl.acc);
+
+}
 
 QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSeries *_marker, MyLogistic *_logistic, QWidget *parent)
-    : QChartView(chart, parent), series( _series ), marker( _marker ), logistic( _logistic ), persistence( false )
+    : QChartView(chart, parent), series( _series ), marker( _marker ),  persistence( false ), logistic( _logistic )
 {
     g_series = new QSplineSeries(this);
     g_series->setName("Tweak");
     control = new QScatterSeries(this);
     cached = false;
+
+    {
+        gsl.interpolator_size = 100;
+        gsl.acc = gsl_interp_accel_alloc ();
+        gsl.spline = gsl_spline_alloc( gsl_interp_cspline, series->pointsVector().size());
+        if( series->pointsVector().size() > 20 )
+            assert(0);
+    }
 
     setRubberBand(QChartView::RectangleRubberBand);
     series->connect(series, &QXYSeries::clicked, [=](const QPointF &point){
@@ -336,6 +348,7 @@ QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSer
         pivote_y->setValue( pivote.y() );
         cached = true;
     });
+
     generator = parent->findChild<QPushButton*>("Generator");
     auto f = [=]( int value ) {
         (void)value;
@@ -347,9 +360,62 @@ QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSer
         pivote = replacement;
         generator->click();
     };
-    pivote_x->connect( pivote_x, QOverload<int>::of(& QSlider::valueChanged), f );
-    pivote_y->connect( pivote_y, QOverload<int>::of(& QSlider::valueChanged), f );
+    for( auto p : { pivote_x, pivote_y })
+        QObject::connect( p, QOverload<int>::of(& QSlider::valueChanged), f );
 
+    auto interpolator = [this]()
+    {
+
+        QString tmp = "./" + QDateTime::currentDateTime().toString("hhmmddMMyyyy") + ".compressor.txt";
+        QString fileName = QFileDialog::getSaveFileName(0,tr("Save buffer"), tmp, tr("(*.txt)"));
+        QFile file(fileName);
+        if ( ! file.open(QIODevice::WriteOnly | QIODevice::Text ) )
+            return;
+
+        size_t i(0);
+        for( auto p : series->pointsVector() )
+        {
+            gsl.x_knot[i] = p.x();
+            gsl.y_knot[i] = p.y();
+            i++ ;
+        }
+
+        gsl_spline_init(gsl.spline, gsl.x_knot, gsl.y_knot, series->pointsVector().size());
+        float scaler = gsl.spline->interp->xmax/gsl.interpolator_size;
+        for( size_t j = 0; j < gsl.interpolator_size; j++ )
+        {
+            double x_map = j * scaler;
+            std::get<0>( gsl.interpolator )[j] = x_map;
+            std::get<1>( gsl.interpolator )[j]= gsl_spline_eval (gsl.spline, x_map, gsl.acc);
+        }
+
+        {
+            QString buffer;
+            for ( size_t j = 0; j < gsl.interpolator_size; j++)
+                buffer += QString("%1 %2\n")
+                              .arg( std::get<0>( gsl.interpolator )[j])
+                              .arg( std::get<1>( gsl.interpolator )[j]);
+
+            QTextStream out( & file );
+            out << QDateTime::currentDateTime().toString("## ddMMyyyy hh:mm:ss.zzz:: ");
+            out << QString("## file=\"%1.compressor.txt\";plot file u 1:2 w p\n").arg( QFileInfo(file).baseName() );
+            out << buffer;
+
+            QString tooltip = saver->toolTip();
+            static QString header;
+            if ( header.size() == 0 )
+                header = tooltip;
+            if( tooltip.size() > 256 )
+                tooltip = QString("<b>%1</b>").arg( header.size() ? header + "<br/>" : header );
+            saver->setToolTip( tooltip + "<br/>" + QString("<small>%1</small>").arg(fileName) + "<br/>" );
+        }
+
+        file.close();
+    };
+
+    QObject::connect( saver = parent->findChild<QPushButton*>("MapSaver"), & QPushButton::clicked, interpolator );
+
+    generator = parent->findChild<QPushButton*>("Generator");
     QObject::connect(generator,&QPushButton::clicked,[=](){
         adjustRanges();
         chart->removeSeries(g_series);
