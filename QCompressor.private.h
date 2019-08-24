@@ -59,6 +59,8 @@ private:
         NurbsInterfaceT interface;
         int (*generator)( NurbsInterfaceT *iface );
     } nurbs;
+
+    void auditory( QString report );
 };
 #endif // QCOMPRESSOR_H
 

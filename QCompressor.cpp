@@ -28,6 +28,9 @@ using namespace std;
 #include <gsl/gsl_errno.h>
 #include <gsl/gsl_spline.h>
 
+#include "boost/date_time/posix_time/posix_time.hpp"
+typedef boost::posix_time::ptime Time;
+typedef boost::posix_time::time_duration TimeDuration;
 
 #include <cstring>
 
@@ -280,7 +283,7 @@ QCompressor::QCompressor(QWidget *parent) : QWidget(parent)
             b->setToolTip(tooltip);
         };
 
-        buttonSetUp( generator,":/pixmaps/generator.png","<small><b>Splined</b> curve generator through tweaked points</small>");
+        buttonSetUp( generator,":/pixmaps/generator.png","<small><b>Splined</b> curve generation through tweaking points</small>");
         buttonSetUp( zoom     ,":/pixmaps/zoom.png","<small><b>AutoZoom</b> operation</small>");
         buttonSetUp( reset    ,":/pixmaps/reset.png","<small><b>Initialise</b> curves</small>");
         buttonSetUp( save     ,":/pixmaps/save.png","<small><b>Save</b> tweaked curve on ASCII file</small>");
@@ -428,13 +431,7 @@ QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSer
             out << QString("## file=\"%1.compressor.txt\";plot file u 1:2, file u 3:4 w p\n").arg( QFileInfo(file).baseName() );
             out << buffer;
 
-            QString tooltip = saver->toolTip();
-            static QString header;
-            if ( header.size() == 0 )
-                header = tooltip;
-            if( tooltip.size() > 256 )
-                tooltip = QString("<b>%1</b>").arg( header.size() ? header + "<br/>" : header );
-            saver->setToolTip( tooltip + "<br/>" + QString("<small>%1</small>").arg(fileName) + "<br/>" );
+            auditory(fileName);
         }
 
         file.close();
@@ -467,7 +464,13 @@ QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSer
                 nurbs.interface.data.y[i] = p.y();
                 i++ ;
             }
+
+            Time offset_start = boost::posix_time::microsec_clock::local_time();
             nurbs.generator( & nurbs.interface );
+            Time now = boost::posix_time::microsec_clock::local_time();
+            size_t elapsed = ( now - offset_start ).total_microseconds();
+            auditory( QString("NURBS latency <b>%1</b>(microsec)").arg(elapsed) );
+
             for ( size_t i = 0; i < nurbs.interface.soInterpolation; i++ )
                 nurbs_series->append( nurbs.interface.data.x[i], nurbs.interface.data.y[i] );
             chart->addSeries( nurbs_series );
@@ -538,4 +541,15 @@ void QLogisticChartView::wheelEvent(QWheelEvent *event)
 void QLogisticChartView::mouseMoveEvent(QMouseEvent *event)
 {
     QChartView::mouseMoveEvent(event);
+}
+
+void QLogisticChartView::auditory(QString report)
+{
+    QString tooltip = saver->toolTip();
+    static QString header;
+    if ( header.size() == 0 )
+        header = tooltip;
+    if( tooltip.size() > 256 )
+        tooltip = QString("<b>%1</b>").arg( header.size() ? header + "<br/>" : header );
+    saver->setToolTip( tooltip + "<br/>" + QString("<small>%1</small>").arg(report) );
 }
