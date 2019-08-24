@@ -11,7 +11,8 @@ INCLUDEPATH = ./dependencies/include $$SHARED_FOLDER
 SOURCES += \
     ./dependencies/common_cpp/src/CLogistic.cpp \
     QCompressor.cpp \
-    main.cpp
+    main.cpp \
+    nurbs.cpp
 
 INSTALLS += target
 
@@ -19,7 +20,8 @@ HEADERS += \
 	./dependencies/common_cpp/inc/CLogistic.h \
 	QCompressor.h \
 	QCompressor.private.h \
-	main.h
+	main.h \
+	nurbs.h
 
 RESOURCES += \
 	resources.qrc

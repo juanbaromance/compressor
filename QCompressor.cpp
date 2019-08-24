@@ -28,6 +28,9 @@ using namespace std;
 #include <gsl/gsl_errno.h>
 #include <gsl/gsl_spline.h>
 
+
+#include <cstring>
+
 using LogisticParams = logistic_parameters_t;
 class MyLogistic : public CLogistic
 {
@@ -297,20 +300,33 @@ QLogisticChartView::~QLogisticChartView()
 }
 
 QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSeries *_marker, MyLogistic *_logistic, QWidget *parent)
-    : QChartView(chart, parent), series( _series ), marker( _marker ),  persistence( false ), logistic( _logistic )
+    : QChartView(chart, parent),
+    operation_mask(0),
+    series( _series ), marker( _marker ),  persistence( false ), logistic( _logistic )
 {
-    g_series = new QSplineSeries(this);
-    g_series->setName("Tweak");
+    ( spline_series = new QSplineSeries(this) )->setName("QT.Splines");
+    ( nurbs_series = new QLineSeries(this) )->setName("Nurbs");
+
     control = new QScatterSeries(this);
     cached = false;
 
+    size_t so_interpolation = 100;
     {
-        gsl.interpolator_size = 100;
+        gsl.soInterpolation = so_interpolation;
         gsl.acc = gsl_interp_accel_alloc ();
         gsl.spline = gsl_spline_alloc( gsl_interp_cspline, series->pointsVector().size());
         if( series->pointsVector().size() > 20 )
             assert(0);
     }
+
+    operation_mask.set(Nurbs);
+    {
+        nurbs.interface.soInterpolation = so_interpolation;
+        nurbs.interface.noKnots = series->pointsVector().size();
+        nurbs.interface.order = 7;
+        nurbs.generator = nurbs_generator;
+    }
+
 
     setRubberBand(QChartView::RectangleRubberBand);
     series->connect(series, &QXYSeries::clicked, [=](const QPointF &point){
@@ -372,33 +388,44 @@ QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSer
         if ( ! file.open(QIODevice::WriteOnly | QIODevice::Text ) )
             return;
 
-        size_t i(0);
-        for( auto p : series->pointsVector() )
-        {
-            gsl.x_knot[i] = p.x();
-            gsl.y_knot[i] = p.y();
-            i++ ;
-        }
 
-        gsl_spline_init(gsl.spline, gsl.x_knot, gsl.y_knot, series->pointsVector().size());
-        float scaler = gsl.spline->interp->xmax/gsl.interpolator_size;
-        for( size_t j = 0; j < gsl.interpolator_size; j++ )
+        if( operation_mask.test(GSLSpline) )
         {
-            double x_map = j * scaler;
-            std::get<0>( gsl.interpolator )[j] = x_map;
-            std::get<1>( gsl.interpolator )[j]= gsl_spline_eval (gsl.spline, x_map, gsl.acc);
+            size_t i(0);
+            for( auto p : series->pointsVector() )
+            {
+                gsl.x_knot[i] = p.x();
+                gsl.y_knot[i] = p.y();
+                i++ ;
+            }
+            gsl_spline_init(gsl.spline, gsl.x_knot, gsl.y_knot, series->pointsVector().size());
+            float scaler = gsl.spline->interp->xmax/gsl.soInterpolation;
+            for( size_t j = 0; j < gsl.soInterpolation; j++ )
+            {
+                double x_map = j * scaler;
+                std::get<0>( gsl.interpolator )[j] = x_map;
+                std::get<1>( gsl.interpolator )[j]= gsl_spline_eval (gsl.spline, x_map, gsl.acc);
+            }
         }
 
         {
             QString buffer;
-            for ( size_t j = 0; j < gsl.interpolator_size; j++)
-                buffer += QString("%1 %2\n")
-                              .arg( std::get<0>( gsl.interpolator )[j])
-                              .arg( std::get<1>( gsl.interpolator )[j]);
+            for ( size_t j = 0; j < gsl.soInterpolation; j++)
+            {
+                if( operation_mask.test(GSLSpline) )
+                    buffer += QString("%1 %2")
+                                  .arg( std::get<0>( gsl.interpolator )[j])
+                                  .arg( std::get<1>( gsl.interpolator )[j]);
+                if( operation_mask.test(Nurbs) )
+                    buffer += QString("%1 %2")
+                                  .arg( nurbs.interface.data.x[j] )
+                                  .arg( nurbs.interface.data.y[j] );
+                buffer += "\n";
+            }
 
             QTextStream out( & file );
             out << QDateTime::currentDateTime().toString("## ddMMyyyy hh:mm:ss.zzz:: ");
-            out << QString("## file=\"%1.compressor.txt\";plot file u 1:2 w p\n").arg( QFileInfo(file).baseName() );
+            out << QString("## file=\"%1.compressor.txt\";plot file u 1:2, file u 3:4 w p\n").arg( QFileInfo(file).baseName() );
             out << buffer;
 
             QString tooltip = saver->toolTip();
@@ -418,11 +445,34 @@ QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSer
     generator = parent->findChild<QPushButton*>("Generator");
     QObject::connect(generator,&QPushButton::clicked,[=](){
         adjustRanges();
-        chart->removeSeries(g_series);
-        g_series->clear();
-        for( auto p : series->pointsVector() )
-            g_series->append( p );
-        chart->addSeries( g_series );
+
+        if( operation_mask.test(GSLSpline) )
+         {
+            chart->removeSeries(spline_series);
+            spline_series->clear();
+            for( auto p : series->pointsVector() )
+                spline_series->append( p );
+            chart->addSeries( spline_series );
+        }
+
+        if( operation_mask.test(Nurbs) )
+        {
+            chart->removeSeries(nurbs_series);
+            nurbs_series->clear();
+            size_t i(0);
+            memset( & nurbs.interface.data, 0, sizeof( nurbs.interface.data ));
+            for( auto p : series->pointsVector() )
+            {
+                nurbs.interface.data.x[i] = p.x();
+                nurbs.interface.data.y[i] = p.y();
+                i++ ;
+            }
+            nurbs.generator( & nurbs.interface );
+            for ( size_t i = 0; i < nurbs.interface.soInterpolation; i++ )
+                nurbs_series->append( nurbs.interface.data.x[i], nurbs.interface.data.y[i] );
+            chart->addSeries( nurbs_series );
+        }
+
     });
 
     QObject::connect(parent->findChild<QPushButton*>("Reset"),&QPushButton::clicked,[=](){

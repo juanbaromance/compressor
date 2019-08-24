@@ -12,6 +12,8 @@
 #include <QVBoxLayout>
 #include <gsl/gsl_errno.h>
 #include <gsl/gsl_spline.h>
+#include "nurbs.h"
+#include <bitset>
 
 QT_CHARTS_USE_NAMESPACE
 
@@ -27,7 +29,8 @@ public:
 
 private:
     QPushButton *generator, *reset, *saver;
-    QXYSeries  *g_series;
+    QXYSeries *spline_series;
+    QXYSeries *nurbs_series;
     QXYSeries *series;
     QXYSeries *marker;
     QXYSeries *control;
@@ -38,13 +41,24 @@ private:
     void wheelEvent(QWheelEvent *event) Q_DECL_OVERRIDE;
     void mouseMoveEvent(QMouseEvent *event) Q_DECL_OVERRIDE;
 
+    enum {
+        GSLSpline,
+        Nurbs
+    };
+    std::bitset<4> operation_mask;
+
     struct {
         gsl_interp_accel *acc;
         gsl_spline *spline;
         double x_knot[20], y_knot[20];
         std::tuple <double[100],double[100]> interpolator;
-        size_t interpolator_size;
+        size_t soInterpolation;
     } gsl;
+
+    struct {
+        NurbsInterfaceT interface;
+        int (*generator)( NurbsInterfaceT *iface );
+    } nurbs;
 };
 #endif // QCOMPRESSOR_H
 
