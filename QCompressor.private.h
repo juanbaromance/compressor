@@ -29,8 +29,7 @@ public:
 
 private:
     QPushButton *generator, *reset, *saver;
-    QXYSeries *spline_series;
-    QXYSeries *nurbs_series;
+    QXYSeries *spline_series, *nurbs_series, *gsl_series;
     QXYSeries *series;
     QXYSeries *marker;
     QXYSeries *control;
@@ -42,8 +41,9 @@ private:
     void mouseMoveEvent(QMouseEvent *event) Q_DECL_OVERRIDE;
 
     enum {
-        GSLSpline,
-        Nurbs
+        GSLSplines,
+        Nurbs,
+        QTSplines,
     };
     std::bitset<4> operation_mask;
 

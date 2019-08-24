@@ -34,6 +34,11 @@ typedef boost::posix_time::time_duration TimeDuration;
 
 #include <cstring>
 
+static void MyHandler( const char * reason, const char * file, int line, int gsl_errno )
+{
+
+}
+
 using LogisticParams = logistic_parameters_t;
 class MyLogistic : public CLogistic
 {
@@ -309,17 +314,24 @@ QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSer
 {
     ( spline_series = new QSplineSeries(this) )->setName("QT.Splines");
     ( nurbs_series = new QLineSeries(this) )->setName("Nurbs");
+    ( gsl_series = new QLineSeries(this) )->setName("GSL.Splines");
+
+
 
     control = new QScatterSeries(this);
     cached = false;
 
+    //operation_mask.set(GSLSplines);
     size_t so_interpolation = 100;
     {
         gsl.soInterpolation = so_interpolation;
         gsl.acc = gsl_interp_accel_alloc ();
-        gsl.spline = gsl_spline_alloc( gsl_interp_cspline, series->pointsVector().size());
         if( series->pointsVector().size() > 20 )
             assert(0);
+        gsl_set_error_handler( MyHandler );
+
+        gsl.spline = gsl_spline_alloc( gsl_interp_steffen, series->pointsVector().size());
+
     }
 
     operation_mask.set(Nurbs);
@@ -391,31 +403,11 @@ QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSer
         if ( ! file.open(QIODevice::WriteOnly | QIODevice::Text ) )
             return;
 
-
-        if( operation_mask.test(GSLSpline) )
-        {
-            size_t i(0);
-            for( auto p : series->pointsVector() )
-            {
-                gsl.x_knot[i] = p.x();
-                gsl.y_knot[i] = p.y();
-                i++ ;
-            }
-            gsl_spline_init(gsl.spline, gsl.x_knot, gsl.y_knot, series->pointsVector().size());
-            float scaler = gsl.spline->interp->xmax/gsl.soInterpolation;
-            for( size_t j = 0; j < gsl.soInterpolation; j++ )
-            {
-                double x_map = j * scaler;
-                std::get<0>( gsl.interpolator )[j] = x_map;
-                std::get<1>( gsl.interpolator )[j]= gsl_spline_eval (gsl.spline, x_map, gsl.acc);
-            }
-        }
-
         {
             QString buffer;
             for ( size_t j = 0; j < gsl.soInterpolation; j++)
             {
-                if( operation_mask.test(GSLSpline) )
+                if( operation_mask.test(GSLSplines) )
                     buffer += QString("%1 %2")
                                   .arg( std::get<0>( gsl.interpolator )[j])
                                   .arg( std::get<1>( gsl.interpolator )[j]);
@@ -440,22 +432,59 @@ QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSer
     QObject::connect( saver = parent->findChild<QPushButton*>("MapSaver"), & QPushButton::clicked, interpolator );
 
     generator = parent->findChild<QPushButton*>("Generator");
+
     QObject::connect(generator,&QPushButton::clicked,[=](){
         adjustRanges();
+        size_t elapsed = 0;
 
-        if( operation_mask.test(GSLSpline) )
+        auto series_setup = [=](QXYSeries *series )
+        {
+            chart->removeSeries(series);
+            chart->addSeries( series );
+            series->attachAxis(chart->axisX());
+            series->attachAxis(chart->axisY());
+        };
+
+        if( operation_mask.test(QTSplines) )
          {
-            chart->removeSeries(spline_series);
             spline_series->clear();
             for( auto p : series->pointsVector() )
                 spline_series->append( p );
-            chart->addSeries( spline_series );
+            series_setup( spline_series );
+        }
+
+        if( operation_mask.test(GSLSplines) )
+         {
+
+            size_t i(0);
+            for( auto p : series->pointsVector() )
+            {
+                gsl.x_knot[i] = p.x();
+                gsl.y_knot[i] = p.y();
+                i++ ;
+            }
+
+            Time offset_start = boost::posix_time::microsec_clock::local_time();
+            gsl_spline_init(gsl.spline, gsl.x_knot, gsl.y_knot, series->pointsVector().size());
+            float scaler = gsl.spline->interp->xmax/gsl.soInterpolation;
+            for( size_t j = 0; j < gsl.soInterpolation; j++ )
+            {
+                double x_map = j * scaler;
+                std::get<0>( gsl.interpolator )[j] = x_map;
+                std::get<1>( gsl.interpolator )[j]= gsl_spline_eval (gsl.spline, x_map, gsl.acc);
+            }
+            Time now = boost::posix_time::microsec_clock::local_time();
+            elapsed = ( now - offset_start ).total_microseconds();
+            auditory( QString("GSL latency <b>%1</b>(microsec)").arg(elapsed) );
+
+            gsl_series->clear();
+            for( size_t j = 0; j < gsl.soInterpolation; j++ )
+                gsl_series->append( std::get<0>( gsl.interpolator )[j], std::get<1>( gsl.interpolator )[j] );
+            series_setup(gsl_series);
         }
 
         if( operation_mask.test(Nurbs) )
         {
-            chart->removeSeries(nurbs_series);
-            nurbs_series->clear();
             size_t i(0);
             memset( & nurbs.interface.data, 0, sizeof( nurbs.interface.data ));
             for( auto p : series->pointsVector() )
@@ -468,12 +497,13 @@ QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSer
             Time offset_start = boost::posix_time::microsec_clock::local_time();
             nurbs.generator( & nurbs.interface );
             Time now = boost::posix_time::microsec_clock::local_time();
-            size_t elapsed = ( now - offset_start ).total_microseconds();
+            elapsed = ( now - offset_start ).total_microseconds();
             auditory( QString("NURBS latency <b>%1</b>(microsec)").arg(elapsed) );
 
+            nurbs_series->clear();
             for ( size_t i = 0; i < nurbs.interface.soInterpolation; i++ )
                 nurbs_series->append( nurbs.interface.data.x[i], nurbs.interface.data.y[i] );
-            chart->addSeries( nurbs_series );
+            series_setup(nurbs_series);
         }
 
     });
@@ -553,3 +583,4 @@ void QLogisticChartView::auditory(QString report)
         tooltip = QString("<b>%1</b>").arg( header.size() ? header + "<br/>" : header );
     saver->setToolTip( tooltip + "<br/>" + QString("<small>%1</small>").arg(report) );
 }
+
