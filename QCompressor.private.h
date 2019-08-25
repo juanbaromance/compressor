@@ -37,6 +37,7 @@ private:
     QSlider *pivote_x, *pivote_y;
     bool cached, inhibit, persistence;
     MyLogistic *logistic;
+
     void wheelEvent(QWheelEvent *event) Q_DECL_OVERRIDE;
     void mouseMoveEvent(QMouseEvent *event) Q_DECL_OVERRIDE;
 

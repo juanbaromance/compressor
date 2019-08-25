@@ -33,6 +33,8 @@ typedef boost::posix_time::ptime Time;
 typedef boost::posix_time::time_duration TimeDuration;
 
 #include <cstring>
+#include <QPoint>
+#include <QDebug>
 
 static void MyHandler( const char * reason, const char * file, int line, int gsl_errno )
 {
@@ -363,25 +365,6 @@ QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_knots, QXYSeri
         nurbs.generator = nurbs_generator;
     }
 
-
-    setRubberBand(QChartView::RectangleRubberBand);
-    knots->connect(knots, &QXYSeries::clicked, [=](const QPointF &point){
-        QPointF clickedPoint = point;
-        QPointF closest(INT_MAX, INT_MAX);
-        qreal distance(INT_MAX);
-        const auto points = knots->points();
-        for (const QPointF &currentPoint : points) {
-            qreal currentDistance = qSqrt((currentPoint.x() - clickedPoint.x())
-                                              * (currentPoint.x() - clickedPoint.x())
-                                          + (currentPoint.y() - clickedPoint.y())
-                                                * (currentPoint.y() - clickedPoint.y()));
-            if (currentDistance < distance) {
-                distance = currentDistance;
-                closest = currentPoint;
-            }
-        }
-    });
-
     chart->acceptHoverEvents();
     pivote_x = parent->findChild<QSlider*>("PivoteX");
     pivote_y = parent->findChild<QSlider*>("PivoteY");
@@ -555,6 +538,7 @@ QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_knots, QXYSeri
         inhibit = false;
     });
 
+    setRubberBand(QChartView::RectangleRubberBand);
 
 }
 
@@ -598,9 +582,26 @@ void QLogisticChartView::wheelEvent(QWheelEvent *event)
     chart()->scroll(delta.x(),-delta.y());
 }
 
+
+/* Tracking stuff */
 void QLogisticChartView::mouseMoveEvent(QMouseEvent *event)
 {
     QChartView::mouseMoveEvent(event);
+    if( event->buttons() == Qt::LeftButton && ( cached == true ) )
+    {
+        auto const pixel = event->localPos();
+        auto const scene = mapToScene(QPoint(static_cast<int>(pixel.x()), static_cast<int>(pixel.y())));
+        auto const chartItemPos = chart()->mapFromScene(scene);
+        auto const series = chart()->mapToValue(chartItemPos);
+        if( ( series - pivote ).manhattanLength() < 5 )
+        {
+            setRubberBand(QChartView::NoRubberBand);
+            pivote_x->setValue( series.x() );
+            pivote_y->setValue( series.y() );
+        }
+        else
+            setRubberBand(QChartView::RectangleRubberBand);
+    }
 }
 
 void QLogisticChartView::auditory(QString report)
