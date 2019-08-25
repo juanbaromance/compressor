@@ -183,32 +183,32 @@ static int knot( int n, int c, int *x )
 }
 
 
-int nurbs_generator( t_nurbs_iface *iface )
+int nurbs_generator( NurbsDTO *dto )
 {
 
-    if( ( iface->soInterpolation < 1 )||(  iface->soInterpolation >  LengthOfInterpolation) )
+    if( ( dto->soInterpolation < 1 )||(  dto->soInterpolation >  LengthOfInterpolation) )
         return  NurbsLengthOutOfBounds;
-    if( ( iface->order < 1 )||( iface->order > NurbsOrderBound ) )
+    if( ( dto->order < 1 )||( dto->order > NurbsOrderBound ) )
         return NurbsOrderOutOfBounds;
-    if( iface->noKnots > NurbsKnotBound )
+    if( dto->noKnots > NurbsKnotBound )
         return NurbsKnotsOutOfBounds;
 
 
-    for( int i = 0, k = 0; i < iface->noKnots; i++ )
+    for( int i = 0, k = 0; i < dto->noKnots; i++ )
     {
         k = ( 3 *i ) +1;
-        knots3D[ k    ] = iface->data.x[ i ];
-        knots3D[ k +1 ] = iface->data.y[ i ];
-        knots3D[ k +2 ] = iface->data.z[ i ];
+        knots3D[ k    ] = dto->data.x[ i ];
+        knots3D[ k +1 ] = dto->data.y[ i ];
+        knots3D[ k +2 ] = dto->data.z[ i ];
     }
 
-    bspline( iface->noKnots, iface->order, iface->soInterpolation, knots3D, interpolation3D );
+    bspline( dto->noKnots, dto->order, dto->soInterpolation, knots3D, interpolation3D );
 
-    for( int j = 0, i = 1; i <= ( 3 * iface->soInterpolation ); i = i + 3, j++ )
+    for( int j = 0, i = 1; i <= ( 3 * dto->soInterpolation ); i = i + 3, j++ )
     {
-        iface->data.x[ j ] = interpolation3D[ i    ];
-        iface->data.y[ j ] = interpolation3D[ i +1 ];
-        iface->data.z[ j ] = interpolation3D[ i +2 ];
+        dto->data.x[ j ] = interpolation3D[ i    ];
+        dto->data.y[ j ] = interpolation3D[ i +1 ];
+        dto->data.z[ j ] = interpolation3D[ i +2 ];
     }
     return 0;
 

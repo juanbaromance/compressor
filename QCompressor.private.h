@@ -30,7 +30,7 @@ public:
 private:
     QPushButton *generator, *reset, *saver;
     QXYSeries *spline_series, *nurbs_series, *gsl_series;
-    QXYSeries *series;
+    QXYSeries *knots;
     QXYSeries *marker;
     QXYSeries *control;
     QPointF pivote;
@@ -56,8 +56,8 @@ private:
     } gsl;
 
     struct {
-        NurbsInterfaceT interface;
-        int (*generator)( NurbsInterfaceT *iface );
+        NurbsDTO dto;
+        int (*generator)( NurbsDTO *iface );
     } nurbs;
 
     void auditory( QString report );

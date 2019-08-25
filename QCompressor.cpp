@@ -205,37 +205,57 @@ QCompressor::QCompressor(QWidget *parent) : QWidget(parent)
 
     logistic = new MyLogistic( records = { series = new QSplineSeries(this), dots = new QScatterSeries(this) }, 230, 0.236, 30, chart );
 
+    // Check this to refactor pair processing in auto-loops addressing DRY smell
+    for( auto s : vector<std::tuple<QXYSeries*,QString>>{ { series,"Logistic.Spline"}, {dots,"Logistic.decimated"} } )
+        std::get<0>(s)->setName( std::get<1>(s) );
+
     series->setName("Logistic-Splined");
     dots->setName("Logistic-Sampled");
+    //
+
 
     QScatterSeries *marker= new QScatterSeries(this);
     marker->setColor(Qt::blue);
     marker->setName("Marker");
     marker->setMarkerSize( marker->markerSize()* 1.50 );
 
-    for( auto s : records )
-        chart->addSeries(s);
-    chart->addSeries(marker);
+    {
+        QValueAxis *axisX = new QValueAxis;
+        axisX->setTitleText("Effort Units");
+        QValueAxis *axisY = new QValueAxis;
+        axisY->setTitleText("U.A");
 
-    chart->createDefaultAxes();
-    chart->axisX()->setTitleText("Effort Units");
-    chart->axisY()->setTitleText("U.A");
+        for( auto axis : { axisX, axisY } )
+        {
+            axis->setLabelFormat("%3.0f");
+            axis->setTickCount(8);
+            axis->setMinorTickCount(2);
+        }
 
-    chart->axisX()->setGridLineVisible(true);
-    chart->axisY()->setGridLineVisible(true);
-    chart->axisX()->setMinorGridLineVisible(true);
-    chart->axisY()->setMinorGridLineVisible(true);
+        for( auto s : records )
+        {
+            chart->addSeries(s);
+            chart->setAxisX( axisX,s);
+            chart->setAxisY( axisY,s);
+        }
+
+        chart->addSeries(marker);
+        chart->setAxisX(axisX, marker );
+        chart->setAxisY(axisY, marker );
+    }
 
     QSlider *x_pivote = new QSlider(this), *y_pivote = new QSlider(this);
 
     x_pivote->setObjectName("PivoteX");
+
     QVariant value;
     value.setValue(QString("X "));
     x_pivote->setProperty("Auditor", value );
-
+    x_pivote->setSingleStep(1);
     y_pivote->setObjectName("PivoteY");
     value.setValue(QString("Y "));
     y_pivote->setProperty("Auditor", value );
+    y_pivote->setSingleStep(1);
 
     QPushButton *reset;
     ( reset = new QPushButton(this) )->setObjectName("Reset");
@@ -307,15 +327,16 @@ QLogisticChartView::~QLogisticChartView()
 
 }
 
-QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSeries *_marker, MyLogistic *_logistic, QWidget *parent)
+QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_knots, QXYSeries *_marker, MyLogistic *_logistic, QWidget *parent)
     : QChartView(chart, parent),
     operation_mask(0),
-    series( _series ), marker( _marker ),  persistence( false ), logistic( _logistic )
+    knots( _knots ), marker( _marker ),  persistence( false ), logistic( _logistic )
 {
     ( spline_series = new QSplineSeries(this) )->setName("QT.Splines");
     ( nurbs_series = new QLineSeries(this) )->setName("Nurbs");
     ( gsl_series = new QLineSeries(this) )->setName("GSL.Splines");
-
+    for( auto i : { nurbs_series, spline_series, gsl_series } )
+        chart->addSeries( i );
 
 
     control = new QScatterSeries(this);
@@ -326,29 +347,29 @@ QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSer
     {
         gsl.soInterpolation = so_interpolation;
         gsl.acc = gsl_interp_accel_alloc ();
-        if( series->pointsVector().size() > 20 )
+        if( knots->pointsVector().size() > 20 )
             assert(0);
         gsl_set_error_handler( MyHandler );
 
-        gsl.spline = gsl_spline_alloc( gsl_interp_steffen, series->pointsVector().size());
+        gsl.spline = gsl_spline_alloc( gsl_interp_steffen, knots->pointsVector().size());
 
     }
 
     operation_mask.set(Nurbs);
     {
-        nurbs.interface.soInterpolation = so_interpolation;
-        nurbs.interface.noKnots = series->pointsVector().size();
-        nurbs.interface.order = 7;
+        nurbs.dto.soInterpolation = so_interpolation;
+        nurbs.dto.noKnots = knots->pointsVector().size();
+        nurbs.dto.order = 7;
         nurbs.generator = nurbs_generator;
     }
 
 
     setRubberBand(QChartView::RectangleRubberBand);
-    series->connect(series, &QXYSeries::clicked, [=](const QPointF &point){
+    knots->connect(knots, &QXYSeries::clicked, [=](const QPointF &point){
         QPointF clickedPoint = point;
         QPointF closest(INT_MAX, INT_MAX);
         qreal distance(INT_MAX);
-        const auto points = series->points();
+        const auto points = knots->points();
         for (const QPointF &currentPoint : points) {
             qreal currentDistance = qSqrt((currentPoint.x() - clickedPoint.x())
                                               * (currentPoint.x() - clickedPoint.x())
@@ -365,7 +386,7 @@ QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSer
     pivote_x = parent->findChild<QSlider*>("PivoteX");
     pivote_y = parent->findChild<QSlider*>("PivoteY");
 
-    series->connect(series, &QXYSeries::hovered, [=]( QPointF point, bool state ){
+    knots->connect(knots, &QXYSeries::hovered, [=]( QPointF point, bool state ){
 
         if( state == false || ( inhibit == true ) )
             return;
@@ -380,13 +401,22 @@ QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSer
         cached = true;
     });
 
+
+    for( auto i : chart->series() )/*
+        if( ( i->type() == QAbstractSeries::SeriesTypeSpline )||
+            ( i->type() == QAbstractSeries::SeriesTypeLine   ) )*/
+            QObject::connect( static_cast<QXYSeries*>(i), &QXYSeries::hovered, [=]( QPointF point, bool state ){
+                if( state )
+                    setToolTip( QString("<small>(%1,%2)</small>").arg(point.x()).arg(point.y()) );
+            });
+
     generator = parent->findChild<QPushButton*>("Generator");
     auto f = [=]( int value ) {
         (void)value;
         if( cached == false || ( inhibit == true ) )
             return;
         QPointF replacement( pivote_x->value(), pivote_y->value() );
-        series->replace( pivote, replacement );
+        knots->replace( pivote, replacement );
         marker->replace( pivote, replacement );
         pivote = replacement;
         generator->click();
@@ -413,8 +443,8 @@ QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSer
                                   .arg( std::get<1>( gsl.interpolator )[j]);
                 if( operation_mask.test(Nurbs) )
                     buffer += QString("%1 %2")
-                                  .arg( nurbs.interface.data.x[j] )
-                                  .arg( nurbs.interface.data.y[j] );
+                                  .arg( nurbs.dto.data.x[j] )
+                                  .arg( nurbs.dto.data.y[j] );
                 buffer += "\n";
             }
 
@@ -437,7 +467,7 @@ QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSer
         adjustRanges();
         size_t elapsed = 0;
 
-        auto series_setup = [=](QXYSeries *series )
+        auto series_setup = [=](QXYSeries *series)
         {
             chart->removeSeries(series);
             chart->addSeries( series );
@@ -448,7 +478,7 @@ QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSer
         if( operation_mask.test(QTSplines) )
          {
             spline_series->clear();
-            for( auto p : series->pointsVector() )
+            for( auto p : knots->pointsVector() )
                 spline_series->append( p );
             series_setup( spline_series );
         }
@@ -457,7 +487,7 @@ QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSer
          {
 
             size_t i(0);
-            for( auto p : series->pointsVector() )
+            for( auto p : knots->pointsVector() )
             {
                 gsl.x_knot[i] = p.x();
                 gsl.y_knot[i] = p.y();
@@ -465,7 +495,7 @@ QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSer
             }
 
             Time offset_start = boost::posix_time::microsec_clock::local_time();
-            gsl_spline_init(gsl.spline, gsl.x_knot, gsl.y_knot, series->pointsVector().size());
+            gsl_spline_init(gsl.spline, gsl.x_knot, gsl.y_knot, knots->pointsVector().size());
             float scaler = gsl.spline->interp->xmax/gsl.soInterpolation;
             for( size_t j = 0; j < gsl.soInterpolation; j++ )
             {
@@ -486,23 +516,23 @@ QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSer
         if( operation_mask.test(Nurbs) )
         {
             size_t i(0);
-            memset( & nurbs.interface.data, 0, sizeof( nurbs.interface.data ));
-            for( auto p : series->pointsVector() )
+            memset( & nurbs.dto.data, 0, sizeof( nurbs.dto.data ));
+            for( auto p : knots->pointsVector() )
             {
-                nurbs.interface.data.x[i] = p.x();
-                nurbs.interface.data.y[i] = p.y();
+                nurbs.dto.data.x[i] = p.x();
+                nurbs.dto.data.y[i] = p.y();
                 i++ ;
             }
 
             Time offset_start = boost::posix_time::microsec_clock::local_time();
-            nurbs.generator( & nurbs.interface );
+            nurbs.generator( & nurbs.dto );
             Time now = boost::posix_time::microsec_clock::local_time();
             elapsed = ( now - offset_start ).total_microseconds();
             auditory( QString("NURBS latency <b>%1</b>(microsec)").arg(elapsed) );
 
             nurbs_series->clear();
-            for ( size_t i = 0; i < nurbs.interface.soInterpolation; i++ )
-                nurbs_series->append( nurbs.interface.data.x[i], nurbs.interface.data.y[i] );
+            for ( size_t i = 0; i < nurbs.dto.soInterpolation; i++ )
+                nurbs_series->append( nurbs.dto.data.x[i], nurbs.dto.data.y[i] );
             series_setup(nurbs_series);
         }
 
@@ -516,7 +546,7 @@ QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSer
         {
             chart->removeSeries( control );
             control->clear();
-            for( auto p : series->pointsVector() )
+            for( auto p : knots->pointsVector() )
                 control->append( p );
             chart->addSeries( control );
         }
@@ -531,7 +561,7 @@ QLogisticChartView::QLogisticChartView(QChart *chart, QXYSeries *_series, QXYSer
 void QLogisticChartView::adjustRanges()
 {
     float x_min = 0,x_max = 0,y_min = 0, y_max = 0;
-    for( auto p : series->pointsVector() )
+    for( auto p : knots->pointsVector() )
     {
         if( p.x() < x_min )
             x_min = p.x();

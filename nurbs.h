@@ -46,12 +46,12 @@ typedef struct NurbsDataT
     float z[ LengthOfInterpolation ];
 }NurbsDataT;
 
-typedef struct t_nurbs_iface
+typedef struct
 {
     int noKnots, soInterpolation, order;
     NurbsDataT data;
-}NurbsInterfaceT;
+}NurbsDTO;
 
-int nurbs_generator( NurbsInterfaceT* );
+int nurbs_generator( NurbsDTO* );
 
 #endif
